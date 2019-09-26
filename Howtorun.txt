@@ -1,0 +1,6 @@
+In the same folder containing the folder Exercises,
+add the folder "common" in 
+https://github.com/PacktPublishing/Real-Time-3D-Graphics-with-WebGL-2
+
+The folder "common" contains the libraries and data necessary to run
+the examples.

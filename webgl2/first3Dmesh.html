@@ -1,0 +1,535 @@
+<html>
+<head>
+  <title>Rendering primitives</title>
+  <link rel="shortcut icon" type="image/png" href="../common/images/favicon.png" />
+
+  <!-- libraries -->
+  <link rel="stylesheet" href="../common/lib/normalize.css">
+  <script type="text/javascript" src="../common/lib/dat.gui.js"></script>
+  <script type="text/javascript" src="../common/lib/gl-matrix.js"></script>
+
+  <!-- modules -->
+  <script type="text/javascript" src="mystack.js"></script>
+  <script type="text/javascript" src="../common/js/utils.js"></script>
+  <script type="text/javascript" src="../common/js/Scene.js"></script>
+  <script type="text/javascript" src="../common/js/Axis.js"></script>
+  <script type="text/javascript" src="../common/js/Floor.js"></script>
+  <script type="text/javascript" src="../common/js/EventEmitter.js"></script>
+  <script type="text/javascript" src="../common/js/Clock.js"></script>
+
+  <!-- vertex shader -->
+  <script id="vertex-shader" type="x-shader/x-vertex">
+    #version 300 es
+    precision mediump float;
+
+    in vec3 aVertexPosition;
+    in vec3 aVertexNormal;
+    in vec3 aVertexColor;
+
+
+    smooth out vec4 vColor;
+
+    uniform mat4 uModelViewMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform mat4 uNormalMatrix;
+
+    uniform vec3 uLightPosition;
+    uniform vec4 uLightAmbient;
+    uniform vec4 uLightDiffuse;
+
+    uniform vec4 uMaterialDiffuse;
+    uniform bool uWireframe;
+
+
+    void main(void) {
+
+      // If wireframe is enabled, set color to the diffuse property exclusing lights
+      if (uWireframe) {
+        vColor = uMaterialDiffuse;
+      }
+      else {
+        // Normal
+        vec3 N = vec3(uNormalMatrix * vec4(aVertexNormal, 0.0));
+        // Normalized light position
+        vec3 L = normalize(-uLightPosition);
+        float lambertTerm = dot(N, -L);
+
+        if (lambertTerm == 0.0) {
+          lambertTerm = 0.01;
+        }
+
+        // Ambient
+        vec4 Ia = uLightAmbient;
+        // Diffuse
+        vec4 Id = uMaterialDiffuse * uLightDiffuse * lambertTerm;
+
+        // Set varying to be used inside of fragment shader
+        vColor = vec4(vec3(Ia + Id), 1.0);
+      }
+
+      gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aVertexPosition, 1.0);
+
+
+    }
+  </script>
+
+  <!-- fragment shader -->
+  <script id="fragment-shader" type="x-shader/x-fragment">
+    #version 300 es
+    precision mediump float;
+
+    in vec4 vColor;
+    out vec4 fragColor;
+
+
+    void main(void) {
+      fragColor = vColor;
+    }
+  </script>
+
+
+  
+
+  <script type="text/javascript">
+    'use strict';
+
+    let gl, program, scene, clock,
+
+      translationVector = [0.0, 0.0, -1000.0],
+      lightPosition =  [0, 120, 120],
+      lightRotation =  [0, 120, 120],
+      rotationVector = [45.0,0.0,0.0],
+      lightViewMatrix = mat4.create(),
+      modelViewMatrix = mat4.create(),
+      projectionMatrix = mat4.create(),
+      normalMatrix = mat4.create(),
+      modelViewMatrix_stack,
+      center= [0.0,0.0,0.0],
+      // Global variable that captures the current rendering mode type
+      renderingMode = 'TRIANGLES';
+
+
+    function getShader(id) {
+      const script = document.getElementById(id);
+      const shaderString = script.text.trim();
+
+      let shader;
+      if (script.type === 'x-shader/x-vertex') {
+        shader = gl.createShader(gl.VERTEX_SHADER);
+      }
+      else if (script.type === 'x-shader/x-fragment') {
+        shader = gl.createShader(gl.FRAGMENT_SHADER);
+      }
+      else {
+        return null;
+      }
+
+      gl.shaderSource(shader, shaderString);
+      gl.compileShader(shader);
+
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(shader));
+        return null;
+      }
+
+      return shader;
+    }
+
+    function initProgram() {
+      const vertexShader = getShader('vertex-shader');
+      const fragmentShader = getShader('fragment-shader');
+
+      program = gl.createProgram();
+      gl.attachShader(program, vertexShader);
+      gl.attachShader(program, fragmentShader);
+      gl.linkProgram(program);
+
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error('Could not initialize shaders');
+      }
+
+      gl.useProgram(program);
+
+      program.aVertexPosition = gl.getAttribLocation(program, 'aVertexPosition');
+      program.aVertexColor = gl.getAttribLocation(program,'aVertexColor');
+      program.aVertexNormal = gl.getAttribLocation(program, 'aVertexNormal');
+
+      program.uLightPosition = gl.getUniformLocation(program, 'uLightPosition');
+      program.uLightAmbient = gl.getUniformLocation(program, 'uLightAmbient'); 
+      program.uLightDiffuse = gl.getUniformLocation(program, 'uLightDiffuse'); 
+      program.uMaterialDiffuse = gl.getUniformLocation(program, 'uMaterialDiffuse');
+      program.uWireframe = gl.getUniformLocation(program, 'uWireframe');
+
+      program.uModelViewMatrix = gl.getUniformLocation(program, 'uModelViewMatrix');
+      program.uNormalMatrix = gl.getUniformLocation(program, 'uNormalMatrix');
+      program.uProjectionMatrix = gl.getUniformLocation(program, 'uProjectionMatrix');
+
+    }
+
+
+
+    function compute_center(){
+      const obj = scene.get('laurana') 
+      if (obj !== undefined){
+        var vertices = obj.vertices;
+        var min_x = vertices[0];
+        var max_x = vertices[0];
+        
+        var min_y = vertices[1];
+        var max_y = vertices[1];
+        
+        var min_z = vertices[2];
+        var max_z = vertices[2];
+        
+        var i, n = vertices.length;
+        for (i=3;i<n;i+=3){
+          min_x = Math.min(min_x, vertices[i]); 
+          min_y = Math.min(min_y, vertices[i+1]);
+          min_z = Math.min(min_z, vertices[i+2]); 
+          
+          max_x = Math.max(max_x, vertices[i]); 
+          max_y = Math.max(max_y, vertices[i+1]);
+          max_z = Math.max(max_z, vertices[i+2]); 
+        }
+
+        center[0] = (min_x+max_x)/2.0;
+        center[1] = (min_y+max_y)/2.0;
+        center[2] = (min_z+max_z)/2.0;
+
+
+        }
+    }
+
+
+    // Load objects into our `scene`
+    function load() {
+        scene.add(new Floor(500, 10));
+        scene.add(new Axis(1000));
+        scene.load('/common/models/geometries/cone3.json', 'cone');
+        scene.load('Laurana50k.json', 'laurana').then(() => {alert("Laurana loaded");compute_center();}).catch((err) => console.error(err, ...arguments));;
+    }
+
+    function draw() {
+     
+      gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+      try {
+
+        var temp = updateTransforms(modelViewMatrix,lightViewMatrix);
+        modelViewMatrix = temp.modelViewMatrix;
+         lightViewMatrix =temp.lightViewMatrix;
+
+         var tempLightPosition = vec4.create();
+         vec4.set(tempLightPosition, lightPosition[0], lightPosition[1], lightPosition[2],1);
+         
+         transformMat4(tempLightPosition,tempLightPosition,lightViewMatrix);
+         
+         vec3.set(tempLightPosition[0]/tempLightPosition[3],
+         tempLightPosition[1]/tempLightPosition[3],
+         tempLightPosition[2]/tempLightPosition[3]);
+         
+
+         gl.uniform3fv(program.uLightPosition, lightPosition);
+
+        // Iterate over every object in the scene
+        scene.traverse(object => {
+          
+          //var modelViewCopy = mat4.clone(modelViewMatrix);
+          modelViewMatrix_stack.push(mat4.clone(modelViewMatrix));
+
+          if (object.alias === 'laurana'){
+            modelViewMatrix = updateLocalTransforms(modelViewMatrix);
+          }
+
+          setMatrixUniforms(modelViewMatrix);
+
+          gl.uniform4fv(program.uMaterialDiffuse, object.diffuse);
+          gl.uniform1i(program.uWireframe, object.wireframe);
+
+          // Bind
+          gl.bindVertexArray(object.vao);
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, object.ibo);
+
+          // Draw
+          if (object.wireframe) {
+            gl.drawElements(gl.LINES, object.indices.length, gl.UNSIGNED_SHORT, 0);
+          }
+          else {
+            gl.drawElements(gl.TRIANGLES, object.indices.length, gl.UNSIGNED_SHORT, 0);
+          }
+
+          modelViewMatrix = modelViewMatrix_stack.pop();
+
+          // Clean
+          gl.bindVertexArray(null);
+          gl.bindBuffer(gl.ARRAY_BUFFER, null);
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+        });
+
+       
+      }
+      catch (error) {
+        console.error(error);
+      }
+    }
+
+    function initTransforms(){
+      modelViewMatrix_stack = new MyStack();
+      var temp = updateTransforms(modelViewMatrix,lightViewMatrix);
+        modelViewMatrix = temp.modelViewMatrix;
+         lightViewMatrix =temp.lightViewMatrix;
+    }
+
+    function setMatrixUniforms(modelViewMatrix){
+      gl.uniformMatrix4fv(program.uModelViewMatrix, false, modelViewMatrix);
+      gl.uniformMatrix4fv(program.uNormalMatrix, false, normalMatrix);  
+      gl.uniformMatrix4fv(program.uProjectionMatrix, false, projectionMatrix);  
+    }
+
+    function updateTransforms(modelViewMatrix,lightViewMatrix){
+     
+    
+      mat4.identity(modelViewMatrix);
+      mat4.identity(lightViewMatrix);
+
+       //set camera position
+      var tv = vec3.create();
+      vec3.set(tv, translationVector[0], translationVector[1], translationVector[2]);
+      mat4.translate(modelViewMatrix,modelViewMatrix,tv);
+      //set light position
+      var tv = vec3.create();
+      vec3.set(tv, lightPosition[0], lightPosition[1], lightPosition[2]);
+      mat4.translate(lightViewMatrix,lightViewMatrix,tv);
+
+      // rotate camera axis
+      mat4.rotateX(modelViewMatrix,modelViewMatrix,rotationVector[0]* Math.PI / 180);
+      mat4.rotateY(modelViewMatrix,modelViewMatrix,rotationVector[1]* Math.PI / 180);
+      mat4.rotateZ(modelViewMatrix,modelViewMatrix,rotationVector[2]* Math.PI / 180);
+      // rotate light axis
+      mat4.rotateX(lightViewMatrix,lightViewMatrix,lightRotation[0]* Math.PI / 180);
+      mat4.rotateY(lightViewMatrix,lightViewMatrix,lightRotation[1]* Math.PI / 180);
+      mat4.rotateZ(lightViewMatrix,lightViewMatrix,lightRotation[2]* Math.PI / 180);
+
+      // define normal matrix s
+      mat4.identity(normalMatrix);
+      mat4.copy(normalMatrix, modelViewMatrix);
+      mat4.invert(normalMatrix, normalMatrix);
+      mat4.transpose(normalMatrix, normalMatrix);
+
+      // define projection matrix
+      mat4.identity(projectionMatrix);  
+      mat4.perspective(projectionMatrix, 45, gl.canvas.width / gl.canvas.height, 0.1, 2000);
+
+      return {modelViewMatrix,lightViewMatrix};
+    }
+
+    function updateLocalTransforms(modelViewMatrix){
+      var tv = vec3.create();
+      vec3.set(tv, -center[0], -center[1], -center[2]); 
+      mat4.translate(modelViewMatrix,modelViewMatrix,tv);
+
+      return modelViewMatrix;
+    }
+
+    function render() {
+        //requestAnimationFrame(render);
+        draw();
+    }
+
+    function init() {
+      const canvas = utils.getCanvas('webgl-canvas');
+      utils.autoResizeCanvas(canvas);
+      //canvas.width = window.innerWidth;
+      //canvas.height = window.innerHeight;
+
+      gl = utils.getGLContext(canvas);
+      gl.clearColor(0.0, 0.5, 0.5, 1.0);
+      gl.enable(gl.DEPTH_TEST);
+
+      clock = new Clock();
+
+      initProgram();
+
+      scene = new Scene(gl, program);
+
+      // Configure lights
+      gl.uniform3fv(program.uLightPosition, lightPosition);
+      gl.uniform4fv(program.uLightAmbient, [0.20, 0.20, 0.20, 1]);
+      gl.uniform4fv(program.uLightDiffuse, [1, 1, 1, 1]);
+      
+      initTransforms();
+
+
+      load();
+
+      render();
+
+      clock.on('tick', draw);
+
+      initControls();
+    }
+
+    function initControls() {
+      
+      var axis = ["x","y","z"];
+
+      // A wrapper around dat.GUI interface for a simpler API
+      // for the purpose of this book
+      utils.configureControls({
+
+        // reduce receives a function and the initial value (below the initial value is {})
+        // result is the inital value or the return of the previous call to the function
+        // Spread all values from the reduce onto the controls
+
+        ...['lightROT X', 'lightROT Y', 'lightROT Z'].reduce((result, name, i) => {
+          result[name] = {
+            value: translationVector[i],
+            min: -5000, 
+            max: 5000, 
+            step: 0.0001,
+            onChange(v, state){
+              lightRotation[i] = v;
+              //render(); 
+            }
+          };
+          return result;
+        }, {}),
+        
+
+        ...['lightpos X', 'lightpos Y', 'lightpos Z'].reduce((result, name, i) => {
+          result[name] = {
+            value: translationVector[i],
+            min: -5000, 
+            max: 5000, 
+            step: 0.0001,
+            onChange(v, state){
+              lightPosition[i] = v;
+              //render(); 
+            }
+          };
+          return result;
+        }, {}),
+
+...['Translate X', 'Translate Y', 'Translate Z'].reduce((result, name, i) => {
+          result[name] = {
+            value: translationVector[i],
+            min: -5000, 
+            max: 5000, 
+            step: 0.0001,
+            onChange(v, state){
+              translationVector[i] = v;
+              //render(); 
+            }
+          };
+          return result;
+        }, {}),
+        ...['Rotate X', 'Rotate Y', 'Rotate Z'].reduce((result, name, i) => {
+          result[name] = {
+            
+            value: rotationVector[i],
+            min: -180, max: 180, step: 0.00001,
+            onChange(v, state) {
+              rotationVector = [
+                state['Rotate X'],
+                state['Rotate Y'],
+                state['Rotate Z']
+              ];
+   
+              
+            //render();  
+
+            }
+          };
+          return result;
+        }, {})
+      })
+
+        // On every `tick` (i.e. requestAnimationFrame cycle), invoke callback
+        clock.on('tick', () => {
+        // Update the values in the DOM
+        //const matrix = (coordinates === WORLD_COORDINATES) ? modelViewMatrix : cameraMatrix;
+        var matrix = modelViewMatrix;
+        matrix.forEach((data, i) => {
+          document.getElementById(`m${i}`).innerText = data.toFixed(1);
+        });
+
+        matrix = projectionMatrix;
+        matrix.forEach((data, i) => {
+          document.getElementById(`p${i}`).innerText = data.toFixed(1);
+        });
+      });
+    }
+
+    window.onload = init;
+
+  </script>
+</head>
+
+<body>
+
+  <canvas id="webgl-canvas">
+    Your browser does not support the HTML5 canvas element.
+  </canvas>
+
+  <div id="info">
+    <p>Camera Matrix</p>
+    <table id="matrix">
+      <tr>
+        <td id="m0"></td>
+        <td id="m4"></td>
+        <td id="m8"></td>
+        <td id="m12"></td>
+      </tr>
+      <tr>
+        <td id="m1"></td>
+        <td id="m5"></td>
+        <td id="m9"></td>
+        <td id="m13"></td>
+      </tr>
+      <tr>
+        <td id="m2"></td>
+        <td id="m6"></td>
+        <td id="m10"></td>
+        <td id="m14"></td>
+      </tr>
+      <tr>
+        <td id="m3"></td>
+        <td id="m7"></td>
+        <td id="m11"></td>
+        <td id="m15"></td>
+      </tr>
+    </table>
+
+    <p>Projection Matrix</p>
+    <table id="matrix">
+      <tr>
+        <td id="p0"></td>
+        <td id="p4"></td>
+        <td id="p8"></td>
+        <td id="p12"></td>
+      </tr>
+      <tr>
+        <td id="p1"></td>
+        <td id="p5"></td>
+        <td id="p9"></td>
+        <td id="p13"></td>
+      </tr>
+      <tr>
+        <td id="p2"></td>
+        <td id="p6"></td>
+        <td id="p10"></td>
+        <td id="p14"></td>
+      </tr>
+      <tr>
+        <td id="p3"></td>
+        <td id="p7"></td>
+        <td id="p11"></td>
+        <td id="p15"></td>
+      </tr>
+    </table>
+
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,334 @@
+<html>
+<head>
+    <title>Drawing canvas dat-gui</title>
+    <link rel="shortcut icon" type="image/png" href="../common/images/favicon.png" />
+
+    <style type="text/css">
+    canvas {
+        border: 1px dotted blue;
+    }
+    .inline-block-child {
+        display: inline-block;
+    }
+    </style>
+</head>
+
+<body>
+
+    <canvas id="canvas" width="800" height="600">
+    Your browser does not support the HTML5 canvas element.
+    </canvas>
+    <!--
+    <div class='parent'>
+            <div class='child inline-block-child'>
+                <p id="cursor_pos">Position: (0,0)</p>
+            </div>
+            <div class='child inline-block-child'>
+                <button id = "color_box" style="background-color:red; padding: 15px 32px"></button>
+            </div>
+    </div>
+    -->
+    
+<script type="text/javascript" src="../common/lib/dat.gui.js"></script>   
+<script type="text/javascript" src="./shape.js"></script>
+
+<script>
+
+
+
+
+    class PointList{
+        constructor(){
+            this._list = []
+        }
+
+        get size(){
+            return this._list.length;
+        }
+
+        get list(){
+            return this._list;
+        }
+
+        push(point){
+            this._list.push(point);
+        }
+
+        randomFill(n){
+            var w = canvas.width;
+            var h = canvas.height;
+
+            var i;
+            for (i=0;i<n;i++){
+                var x = Math.floor(Math.random() * w);
+                var y = Math.floor(Math.random() * h); 
+
+                var r = Math.floor(Math.random()*255);
+                var g = Math.floor(Math.random()*255);
+                var b = Math.floor(Math.random()*255);
+                var color = new Color(r,g,b,1);
+                var point = new Point(x,y,8,color);
+      
+                this.push(point);
+            }
+        }
+
+    }
+
+    //var pointList = []
+
+    
+
+    function hexToRgb(hex) {
+        var bigint = parseInt(hex, 16);
+        var r = (bigint >> 16) & 255;
+        var g = (bigint >> 8) & 255;
+        var b = bigint & 255;
+
+        return [r,g,b];
+    }
+
+
+    class Color{
+        constructor (r,g,b,a){
+            this._r = r;
+            this._g = g;
+            this._b = b;
+            this._a = a;
+        }
+    
+        get r(){
+            return this._r;
+        }
+
+        set r(r){
+            this._r = r;
+        }
+
+        get g(){
+            return this._g;
+        }
+
+        set g(g){
+            this._g = g;
+        }   
+
+        get b(){
+            return this._b;
+        }
+        set b(b){
+            this._b = b;
+        }
+
+        get a(){
+            return this._a;
+        }
+        set a(a){
+            this._a = a;
+        }
+
+
+    }
+
+
+
+    mouseMove =  function(event){
+                var offsetLeft = canvas.offsetLeft;
+                var offsetTop = canvas.offsetTop;
+                var color = 'white';
+                var x = event.pageX - offsetLeft,
+                    y = event.pageY - offsetTop; 
+
+                var i;
+                for (i=0;i<pointList.size;i++){
+                    if (pointList.list[i].isInside(x,y)) {
+                        color = `rgb(${pointList.list[i].color.r},${pointList.list[i].color.g},${pointList.list[i].color.b})`;
+                        break;
+                    }
+                }
+                // event.pageX is the x coordinate of the cursor
+                // event.pageY is the y coordinate of the cursor
+                var x = event.pageX - offsetLeft,
+                    y = event.pageY - offsetTop; 
+
+                info.position = 'Position: (' + x.toString() + ',' + y.toString() + ')';
+                info.color = color;
+
+                //cursor_pos.innerHTML = 'Position: (' + x.toString() + ',' + y.toString() + ')';
+                //color_box.style.backgroundColor = color;
+    }   
+
+    mouseClick = function(event) {
+                var offsetLeft = canvas.offsetLeft;
+                var offsetTop = canvas.offsetTop;
+
+                // event.pageX is the x coordinate of the cursor
+                // event.pageY is the y coordinate of the cursor
+                var x = event.pageX - offsetLeft,
+                    y = event.pageY - offsetTop; 
+                
+                /*var x = event.pageX,
+                    y = event.pageY;*/
+
+                // Collision detection between clicked offset and element.
+                var i;
+                for (i=0;i<pointList.size;i++){
+                    if (pointList.list[i].isInside(x,y)) {
+                        size = point.size;
+                        var message = 'clicked a point of size ' + size.toString() +  ' in position:(' + x.toString() +',' + y.toString() + ')';
+                        alert(message);
+                        break;
+                    }
+                }
+    }
+
+    
+
+    mouseClickCreatePoint = function(event) {
+            var offsetLeft = canvas.offsetLeft;
+            var offsetTop = canvas.offsetTop;
+
+            // event.pageX is the x coordinate of the cursor
+            // event.pageY is the y coordinate of the cursor
+            var x = event.pageX - offsetLeft,
+                y = event.pageY - offsetTop; 
+
+            //var rgb = hexToRgb(properties.foregroundColor);
+            var r = properties.foregroundColor[0];
+            var g = properties.foregroundColor[1];
+            var b = properties.foregroundColor[2];
+            var color = new Color (r,g,b, 255);
+
+            point = new Point(x,y,properties.pointSize,color);
+            pointList.push(point);
+            render(canvas,pointList);
+    }
+
+
+
+    function drawPoints(ctx,pointList){
+            ctx.moveTo(0,0);
+            var i;
+            for (i=0;i<pointList.size;i++){
+                point = pointList.list[i];
+                ctx.fillStyle = `rgb(${point.color.r},${point.color.g},${point.color.b})`;
+                var pos_x = point.x-Math.round(point.size/2.0);
+                var pos_y = point.y-Math.round(point.size/2.0);
+                ctx.fillRect(pos_x,pos_y,point.size,point.size);
+            }
+    }
+
+
+
+    function render(canvas,pointList){
+        var ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawPoints(ctx,pointList)
+    }
+
+
+    function init(){
+        var canvas = document.getElementById("canvas");
+        var cursor_pos = document.getElementById("cursor_pos");
+        var color_box = document.getElementById("color_box");
+
+
+        canvas.addEventListener('mousemove',mouseMove, false);
+
+ 
+
+        // Add event listener for `click` events.
+        canvas.addEventListener('click', interaction.currentEventListener, false);
+
+
+        var gui = new dat.GUI();
+        var infoFolder = gui.addFolder('Info');
+
+        randomPointcontroller = infoFolder.add(info, 'num_points',0,1000);
+        infoFolder.addColor(info, 'color').listen();
+        infoFolder.add(info, 'position').listen();
+
+        var toolsFolder = gui.addFolder('Tools');
+        toolsFolder.add(tools,'draw');
+        toolsFolder.add(tools,'pick');
+
+        var propertiesFolder = gui.addFolder('Properties');
+        propertiesFolder.addColor(properties,'foregroundColor');
+        propertiesFolder.add(properties,'pointSize',1,20);
+        propertiesFolder.add(properties,'primitiveType',['point','circle','line','polygon']);
+        
+
+        infoFolder.open();
+        propertiesFolder.open();
+        toolsFolder.open();
+        
+
+
+        randomPointcontroller.onChange(
+    
+            function(value){
+                var v = Math.floor(value);
+                if (v<=pointList.size){
+                   pointList.list.length = v;
+                }
+                else{
+                    pointList.randomFill(v-pointList.size);
+                }
+                render(canvas,pointList);
+            } 
+        );       
+
+        pointList.randomFill(info.num_points);
+        render(canvas,pointList);
+    }
+
+    const  InteractionMode = {NONE:1,DRAW:2,PICK:3};
+    
+    var interaction = {mode:InteractionMode.NONE,currentEventListener:mouseClickCreatePoint};
+
+    Info = function(){
+        this.num_points = 50;
+        this.color = [255,255,255];
+        this.position = "Position (0,0)";
+    }
+
+    Tools = function(){
+        this.draw = function(){                        
+                        interaction.mode = InteractionMode.DRAW; 
+                        var canvas = document.getElementById("canvas");
+                        canvas.removeEventListener('click',interaction.currentEventListener);
+                        interaction.currentEventListener = mouseClickCreatePoint;
+                        canvas.addEventListener('click', interaction.currentEventListener, false);
+                    };
+        this.pick = function(){
+                        interaction.mode = InteractionMode.PICK;
+                        var canvas = document.getElementById("canvas");
+                        canvas.removeEventListener('click',interaction.currentEventListener);
+                        interaction.currentEventListener = mouseClick;
+                        canvas.addEventListener('click', interaction.currentEventListener, false);
+                    }
+    }
+
+    Properties = function(){
+        this.foregroundColor = [0,0,0];
+        this.pointSize = 8;
+        this.primitiveType = 'point';
+    }
+
+    var pointList = new PointList();
+    var info = new Info();
+    var tools = new Tools();  
+    var properties = new Properties();
+
+    window.onload = function() {
+ 
+
+    };
+
+
+    window.onload = init()
+    </script>
+
+
+</body>
+</html>
