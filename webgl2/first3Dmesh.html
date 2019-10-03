@@ -35,6 +35,8 @@
     uniform mat4 uProjectionMatrix;
     uniform mat4 uNormalMatrix;
 
+    uniform vec4 uCameraPosition;
+
     uniform vec3 uLightPosition;
     uniform vec4 uLightAmbient;
     uniform vec4 uLightDiffuse;
@@ -69,16 +71,16 @@
         //vec4 Id =uMaterialDiffuse * uLightDiffuse * lambertTerm;
         vec4 Id =uLightDiffuse * lambertTerm;
         //SpecularColor
-        vec3 r = normalize(2.0 * dot(L,N) * N - L);
-        float sTerm = dot(r, -vec3(gl_Position));
+        vec3 r = reflect(L,N);
+        //vec3 r = normalize(2.0 * dot(L,N) * N - L);
+        float sTerm = dot(r, vec3(normalize(uCameraPosition)));
 
-        //vec4 Is =  uMaterialDiffuse * uSpecularColor * pow(sTerm,uShininess) ;
-        vec4 Is =  uSpecularColor * max(pow(sTerm,1.0/uShininess) , 0.0);
+        vec4 Is =  uSpecularColor * max(pow(sTerm,uShininess) , 0.0);
 
        
 
         // Set varying to be used inside of fragment shader
-        vColor = vec4(vec3(Ia + Id + Is), 1.0);
+        vColor = vec4(vec3(max(min(Ia,1.0),0.0) + max(min(Id,1.0),0.0) + max(min(Is,1.0),0.0)), 1.0);
 
         
       }
@@ -120,10 +122,10 @@
       normalMatrix = mat4.create(),
       modelViewMatrix_stack,
       center= [0.0,0.0,0.0],
-      LightAmbient = [0.0, 0.0, 0.0, 1],
-      LightDiffuse = [0.0, 0.0, 0.0, 1],
-      SpecularColor = [0.2,0.2,0.2,1],
-      Shininess = 200.0,
+      LightAmbient = [0.3, 0.3, 0.3, 1],
+      LightDiffuse = [0.5, 0.5, 0.5, 1],
+      SpecularColor = [0.0,0.0,0.0,1],
+      Shininess = 8.0,
       // Global variable that captures the current rendering mode type
       renderingMode = 'TRIANGLES';
 
@@ -178,11 +180,12 @@
       program.uLightDiffuse = gl.getUniformLocation(program, 'uLightDiffuse'); 
       program.uMaterialDiffuse = gl.getUniformLocation(program, 'uMaterialDiffuse');
       program.uWireframe = gl.getUniformLocation(program, 'uWireframe');
-
+      
       program.uModelViewMatrix = gl.getUniformLocation(program, 'uModelViewMatrix');
       program.uNormalMatrix = gl.getUniformLocation(program, 'uNormalMatrix');
       program.uProjectionMatrix = gl.getUniformLocation(program, 'uProjectionMatrix');
-
+      
+      program.uCameraPosition = gl.getUniformLocation(program, 'uCameraPosition');
 
       program.uShininess = gl.getUniformLocation(program, 'uShininess'); 
       program.uSpecularColor = gl.getUniformLocation(program, 'uSpecularColor');
@@ -269,6 +272,13 @@
          gl.uniform3fv(program.uLightPosition, tempLightPosition2);
          
          gl.uniform4fv(program.uViewVector, tempLightPosition2);
+
+         var tempTranslate = vec4.create();
+         vec4.set(tempTranslate, translationVector[0], translationVector[1], translationVector[2],1);
+
+         gl.uniform4fv(program.uCameraPosition, tempTranslate);
+
+         
 
         // Iterate over every object in the scene
         scene.traverse(object => {
